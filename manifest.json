@@ -1,0 +1,14 @@
+{
+  "display_name": "LoreDiff",
+  "loading_order": 95,
+  "requires": [
+    "connection-manager"
+  ],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "elmar.leirich",
+  "version": "0.0.1",
+  "homePage": ""
+}
+

@@ -10,7 +10,12 @@ Personal SillyTavern extension for **manual** lore/state change detection agains
 
 ## Development setup (local)
 
-This repo contains the extension files under:
+SillyTavern's built-in 3rd-party extension installer expects `manifest.json` at the **repo root**.
+This repo therefore includes root wrapper files:
+
+- `manifest.json`, `index.js`, `style.css`, `settings.html`
+
+Canonical sources live under:
 
 - `public/scripts/extensions/third-party/lore-diff`
 
