@@ -1,8 +1,9 @@
-import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { saveSettingsDebounced, eventSource, event_types } from '../../../../../script.js';
-import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
-import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { ConnectionManagerRequestService } from '../../shared.js';
+// Use absolute imports so the extension works when installed as a third-party repo (nested path depth differs).
+import { extension_settings, getContext, renderExtensionTemplateAsync } from '/scripts/extensions.js';
+import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
+import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
+import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
+import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 
 export { MODULE_NAME };
 
