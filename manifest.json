@@ -3,7 +3,7 @@
   "loading_order": 95,
   "requires": [],
   "optional": ["connection-manager"],
-  "js": "index.js",
+  "js": "script.js",
   "css": "style.css",
   "author": "elmar.leirich",
   "version": "0.0.1",
