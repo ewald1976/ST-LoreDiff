@@ -31,6 +31,14 @@
         <input id="lorediff_max_chars" type="number" min="1000" max="100000" step="500" />
       </div>
 
+      <div class="flex-container flexGap10 alignItemsCenter">
+        <label for="lorediff_json_mode" style="min-width: 180px;">JSON parsing</label>
+        <select id="lorediff_json_mode">
+          <option value="tolerant">Tolerant (extract JSON)</option>
+          <option value="strict">Strict (JSON only)</option>
+        </select>
+      </div>
+
       <hr />
 
       <div class="flex-container flexGap10 alignItemsCenter">

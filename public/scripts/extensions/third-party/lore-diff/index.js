@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
     profileId: null,
     maxMessages: 40,
     maxChars: 12000,
+    jsonMode: 'tolerant', // 'tolerant' | 'strict'
 };
 
 function ensureSettings() {
@@ -114,6 +115,94 @@ function safeJsonParse(text) {
     }
 }
 
+function stripCodeFences(text) {
+    if (typeof text !== 'string') return '';
+    const trimmed = text.trim();
+    // Remove triple-backtick fences if present
+    if (trimmed.startsWith('```')) {
+        return trimmed.replace(/^```[a-zA-Z0-9_-]*\s*/m, '').replace(/```$/m, '').trim();
+    }
+    return trimmed;
+}
+
+function tryRepairJsonString(text) {
+    if (typeof text !== 'string') return '';
+    let s = text.trim();
+    // Remove BOM
+    s = s.replace(/^\uFEFF/, '');
+    // Remove trailing commas before } or ]
+    s = s.replace(/,\s*([}\]])/g, '$1');
+    return s;
+}
+
+function extractFirstJson(text) {
+    if (typeof text !== 'string') return null;
+    const s = stripCodeFences(text);
+    const start = Math.min(
+        ...[s.indexOf('{'), s.indexOf('[')].filter(i => i >= 0),
+    );
+    if (!Number.isFinite(start) || start < 0) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+
+    for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (ch === '\\') {
+                escaped = true;
+                continue;
+            }
+            if (ch === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (ch === '{' || ch === '[') depth++;
+        if (ch === '}' || ch === ']') depth--;
+
+        if (depth === 0) {
+            end = i + 1;
+            break;
+        }
+    }
+
+    if (end <= start) return null;
+    return s.slice(start, end);
+}
+
+function parseModelJson(rawText) {
+    if (typeof rawText !== 'string') return { parsed: null, raw: '' };
+    const raw = rawText;
+
+    if (extension_settings.loreDiff.jsonMode === 'strict') {
+        return { parsed: safeJsonParse(stripCodeFences(raw)), raw };
+    }
+
+    // tolerant mode: try direct parse, then extract, then repair
+    const direct = safeJsonParse(stripCodeFences(raw));
+    if (direct) return { parsed: direct, raw };
+
+    const extracted = extractFirstJson(raw);
+    if (!extracted) return { parsed: null, raw };
+
+    const repaired = tryRepairJsonString(extracted);
+    return { parsed: safeJsonParse(repaired), raw };
+}
+
 function buildPrompt({ stateLore, chatSnippet }) {
     return [
         {
@@ -193,11 +282,15 @@ async function runLoreDiff() {
 
         const extracted = await ConnectionManagerRequestService.sendRequest(profileId, messages, 512, { includeInstruct: true, includePreset: true });
         const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
-        const parsed = typeof rawText === 'string' ? safeJsonParse(rawText) : null;
+        const { parsed, raw } = parseModelJson(typeof rawText === 'string' ? rawText : String(rawText ?? ''));
 
         if (!parsed) {
             renderResults(null);
-            toastr?.error?.('LoreDiff: Model did not return valid JSON.');
+            // Show raw output to help debugging "wild" models.
+            const $root = $('#lorediff_results');
+            $root.append($('<div></div>').text('Model output (raw):'));
+            $root.append($('<pre class="lorediff_item_reason"></pre>').text(raw));
+            toastr?.error?.('LoreDiff: Could not parse JSON from model output.');
             return;
         }
 
@@ -256,6 +349,13 @@ async function renderSettings() {
         .val(extension_settings.loreDiff.maxChars)
         .on('input', function () {
             extension_settings.loreDiff.maxChars = Number($(this).val()) || DEFAULT_SETTINGS.maxChars;
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_json_mode')
+        .val(extension_settings.loreDiff.jsonMode)
+        .on('change', function () {
+            extension_settings.loreDiff.jsonMode = String($(this).val());
             saveSettingsDebounced();
         });
 
