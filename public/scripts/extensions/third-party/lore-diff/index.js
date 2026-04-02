@@ -43,6 +43,10 @@ function getChatProfileId() {
     if (!selected || selected === '<None>') return null;
 
     const profiles = getSupportedProfilesSafe();
+    // In some setups the profiles list may not be populated yet when this code runs.
+    // If we have a selectedProfile value, treat it as an ID fallback.
+    if (!Array.isArray(profiles) || profiles.length === 0) return selected;
+
     // Some ST versions store selectedProfile as an ID; others store it as a name.
     const byId = profiles.find(p => p.id === selected)?.id ?? null;
     if (byId) return byId;
