@@ -41,6 +41,12 @@ function getChatProfileId() {
     // If none is selected, return null to indicate "use current chat connection" (non-CM).
     const selected = extension_settings?.connectionManager?.selectedProfile ?? null;
     if (!selected || selected === '<None>') return null;
+
+    const profiles = getSupportedProfilesSafe();
+    // Some ST versions store selectedProfile as an ID; others store it as a name.
+    const byId = profiles.find(p => p.id === selected)?.id ?? null;
+    if (byId) return byId;
+
     return getSelectedProfileIdByName(selected);
 }
 
