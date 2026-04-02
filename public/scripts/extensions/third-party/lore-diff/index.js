@@ -1,5 +1,5 @@
 // Use absolute imports so the extension works when installed as a third-party repo (nested path depth differs).
-import { extension_settings, getContext, renderExtensionTemplateAsync } from '/scripts/extensions.js';
+import { extension_settings, getContext } from '/scripts/extensions.js';
 import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
@@ -7,7 +7,7 @@ import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 
 export { MODULE_NAME };
 
-const MODULE_NAME = 'third-party/lore-diff';
+const MODULE_NAME = 'lore-diff';
 
 const DEFAULT_SETTINGS = {
     profileMode: 'same', // 'same' | 'profile'
@@ -202,7 +202,14 @@ async function runLoreDiff() {
 
 async function renderSettings() {
     ensureSettings();
-    const html = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
+    // Load settings.html relative to this module location.
+    // This avoids relying on SillyTavern's `renderExtensionTemplateAsync`, which expects the extension
+    // directory to be exactly `/scripts/extensions/<name>/...` (not always true for repo-based installs).
+    const settingsUrl = new URL('./settings.html', import.meta.url);
+    const html = await fetch(settingsUrl).then(r => {
+        if (!r.ok) throw new Error(`LoreDiff: Failed to load settings template: ${r.status} ${r.statusText}`);
+        return r.text();
+    });
     $('#extensions_settings').append(html);
 
     const profiles = getSupportedProfilesSafe();
@@ -247,7 +254,16 @@ async function renderSettings() {
 }
 
 function registerSlashCommand() {
-    const cmd = new SlashCommand('lorediff', runLoreDiff, [], 'Detect STATE changes (LoreDiff)');
+    const cmd = SlashCommand.fromProps({
+        name: 'lorediff',
+        callback: async () => {
+            await runLoreDiff();
+            return '';
+        },
+        helpString: 'Detect STATE changes (LoreDiff)',
+    });
+    cmd.isThirdParty = true;
+    cmd.source = 'LoreDiff';
     SlashCommandParser.addCommandObject(cmd);
 }
 
