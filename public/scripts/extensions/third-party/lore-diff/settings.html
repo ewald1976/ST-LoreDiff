@@ -1,35 +1,43 @@
-<div class="extension_settings">
-  <h3>LoreDiff</h3>
+<div id="lorediff_settings">
+  <div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+      <div class="flex-container alignitemscenter margin0">
+        <b>LoreDiff</b>
+      </div>
+      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
 
-  <div class="flex-container flexGap10 alignItemsCenter">
-    <label for="lorediff_profile_mode" style="min-width: 180px;">Analysis connection</label>
-    <select id="lorediff_profile_mode">
-      <option value="same">Same as chat</option>
-      <option value="profile">Connection Manager profile</option>
-    </select>
+    <div class="inline-drawer-content">
+      <div class="flex-container flexGap10 alignItemsCenter">
+        <label for="lorediff_profile_mode" style="min-width: 180px;">Analysis connection</label>
+        <select id="lorediff_profile_mode">
+          <option value="same">Same as chat</option>
+          <option value="profile">Connection Manager profile</option>
+        </select>
+      </div>
+
+      <div class="flex-container flexGap10 alignItemsCenter" id="lorediff_profile_row">
+        <label for="lorediff_profile_id" style="min-width: 180px;">Analysis profile</label>
+        <select id="lorediff_profile_id"></select>
+      </div>
+
+      <div class="flex-container flexGap10 alignItemsCenter">
+        <label for="lorediff_max_messages" style="min-width: 180px;">Recent messages</label>
+        <input id="lorediff_max_messages" type="number" min="5" max="200" step="1" />
+      </div>
+
+      <div class="flex-container flexGap10 alignItemsCenter">
+        <label for="lorediff_max_chars" style="min-width: 180px;">Analysis budget (chars)</label>
+        <input id="lorediff_max_chars" type="number" min="1000" max="100000" step="500" />
+      </div>
+
+      <hr />
+
+      <div class="flex-container flexGap10 alignItemsCenter">
+        <button class="menu_button" id="lorediff_run_btn">Detect STATE changes</button>
+      </div>
+
+      <div id="lorediff_results" class="wide100p"></div>
+    </div>
   </div>
-
-  <div class="flex-container flexGap10 alignItemsCenter" id="lorediff_profile_row">
-    <label for="lorediff_profile_id" style="min-width: 180px;">Analysis profile</label>
-    <select id="lorediff_profile_id"></select>
-  </div>
-
-  <div class="flex-container flexGap10 alignItemsCenter">
-    <label for="lorediff_max_messages" style="min-width: 180px;">Recent messages</label>
-    <input id="lorediff_max_messages" type="number" min="5" max="200" step="1" />
-  </div>
-
-  <div class="flex-container flexGap10 alignItemsCenter">
-    <label for="lorediff_max_chars" style="min-width: 180px;">Analysis budget (chars)</label>
-    <input id="lorediff_max_chars" type="number" min="1000" max="100000" step="500" />
-  </div>
-
-  <hr />
-
-  <div class="flex-container flexGap10 alignItemsCenter">
-    <button class="menu_button" id="lorediff_run_btn">Detect STATE changes</button>
-  </div>
-
-  <div id="lorediff_results" class="wide100p"></div>
 </div>
-
