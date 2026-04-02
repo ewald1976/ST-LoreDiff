@@ -4,6 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
+import { checkWorldInfo } from '/scripts/world-info.js';
 
 export { MODULE_NAME };
 
@@ -236,24 +237,36 @@ function collectRecentChat(maxMessages, maxChars) {
 }
 
 async function collectStateLoreText() {
-    // MVP: read loaded World Info entries that belong to book "STATE" (if available).
-    // If we can't access it in this ST version, fall back to empty baseline (still works but less strict).
+    // Use SillyTavern's own World Info scan engine (dry run) and then take only activated `STATE` entries.
+    // This is robust across ST versions and keeps the baseline small (only relevant entries for the recent chat).
     const context = getContext();
-    const wi = context?.worldInfo ?? context?.world_info ?? null;
+    const chat = Array.isArray(context?.chat) ? context.chat : [];
+    const recent = chat
+        .filter(m => m && !m.is_system && typeof m.mes === 'string' && m.mes.trim().length)
+        .slice(-extension_settings.loreDiff.maxMessages)
+        .map(m => m.mes.trim())
+        .reverse();
 
-    // Best-effort: support multiple shapes.
-    const entries = wi?.entries ?? wi?.worldInfoEntries ?? wi?.data?.entries ?? null;
-    if (!Array.isArray(entries)) return '';
+    if (recent.length === 0) return '';
 
-    const stateEntries = entries.filter(e => e?.book === 'STATE' || e?.world === 'STATE');
-    const blocks = stateEntries
-        .map(e => {
-            const title = e?.comment ? String(e.comment) : `uid:${e?.uid ?? ''}`;
-            const content = e?.content ? String(e.content) : '';
-            return `# ${title}\n${content}`.trim();
-        })
-        .filter(Boolean);
-    return blocks.join('\n\n---\n\n');
+    try {
+        // maxContext controls WI budget; use a typical local-model context here.
+        const maxContext = 8192;
+        const activated = await checkWorldInfo(recent, maxContext, true);
+        const activatedEntries = Array.from(activated?.allActivatedEntries ?? []);
+        const stateEntries = activatedEntries.filter(e => e?.book === 'STATE');
+        const blocks = stateEntries
+            .map(e => {
+                const title = e?.comment ? String(e.comment) : `uid:${e?.uid ?? ''}`;
+                const content = e?.content ? String(e.content) : '';
+                return `# ${title}\n${content}`.trim();
+            })
+            .filter(Boolean);
+        return blocks.join('\n\n---\n\n');
+    } catch (err) {
+        console.warn('LoreDiff: Failed to collect STATE baseline via checkWorldInfo()', err);
+        return '';
+    }
 }
 
 async function runLoreDiff() {
