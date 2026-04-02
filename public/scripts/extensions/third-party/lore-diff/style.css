@@ -1,0 +1,35 @@
+/* Minimal styling; keep MVP lightweight. */
+
+#lorediff_results {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.lorediff_item {
+  border: 1px solid var(--SmartThemeBorderColor);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 6px 0;
+}
+
+.lorediff_item_header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.lorediff_item_type {
+  font-weight: 600;
+}
+
+.lorediff_item_conf {
+  opacity: 0.85;
+  font-size: 0.9em;
+}
+
+.lorediff_item_reason {
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
