@@ -1,5 +1,5 @@
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { saveSettingsDebounced, eventSource, event_types } from '../../../../script.js';
+import { saveSettingsDebounced, eventSource, event_types } from '../../../../../script.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { ConnectionManagerRequestService } from '../../shared.js';
