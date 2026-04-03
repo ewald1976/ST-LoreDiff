@@ -5,6 +5,7 @@ import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { checkWorldInfo, worldInfoCache, getWorldInfoSettings, world_names } from '/scripts/world-info.js';
+import { POPUP_TYPE, callGenericPopup } from '/scripts/popup.js';
 
 export { MODULE_NAME };
 
@@ -508,6 +509,181 @@ async function runLoreDiff() {
     }
 }
 
+function formatDetectedItems(result) {
+    const items = Array.isArray(result?.items) ? result.items : [];
+    if (!items.length) return 'No relevant changes detected.';
+
+    const groups = new Map();
+    for (const it of items) {
+        const type = String(it?.type ?? 'item');
+        if (!groups.has(type)) groups.set(type, []);
+        groups.get(type).push(it);
+    }
+
+    const lines = [];
+    for (const [type, list] of groups.entries()) {
+        lines.push(type.toUpperCase());
+        for (const it of list) {
+            const label = String(it?.label ?? '').trim();
+            const conf = String(it?.confidence ?? '').trim();
+            const confStr = conf ? ` (${conf})` : '';
+            lines.push(`- ${label}${confStr}`.trim());
+        }
+        lines.push('');
+    }
+    return lines.join('\n').trim();
+}
+
+async function detectChangesOnce() {
+    ensureSettings();
+
+    const profileId = pickAnalysisProfileId();
+    if (!profileId) {
+        throw new Error('No active Connection Manager profile selected');
+    }
+
+    const chatSnippet = collectRecentChat(extension_settings.loreDiff.maxMessages, extension_settings.loreDiff.maxChars);
+    const stateLore = await collectStateLoreText();
+    const messages = buildPrompt({ stateLore, chatSnippet });
+
+    const extracted = await ConnectionManagerRequestService.sendRequest(profileId, messages, 600, { includeInstruct: true, includePreset: true });
+    const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
+    return parseModelJson(typeof rawText === 'string' ? rawText : String(rawText ?? ''));
+}
+
+async function generateLoreSuggestion(stateLore, chatSnippet) {
+    ensureSettings();
+    const profileId = pickAnalysisProfileId();
+    if (!profileId) {
+        throw new Error('No active Connection Manager profile selected');
+    }
+
+    const baseUserPrompt = buildPrompt({ stateLore, chatSnippet })?.find(m => m?.role === 'user')?.content ?? '';
+    const prompt = [
+        {
+            role: 'system',
+            content: 'You are LoreDiff. Follow instructions exactly.',
+        },
+        {
+            role: 'user',
+            content:
+`${baseUserPrompt}
+
+Generate a structured lore suggestion.
+
+Rules:
+- Only include meaningful, persistent changes.
+- Use short, neutral sentences.
+- No dialogue.
+- No speculation.
+- Keep it compact.
+
+Format:
+
+[Lorevorschlag]
+
+STATE
+- ...
+
+ABILITY
+- ...
+
+RELATION
+- ...
+`,
+        },
+    ];
+
+    const extracted = await ConnectionManagerRequestService.sendRequest(profileId, prompt, 600, { includeInstruct: true, includePreset: true });
+    const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
+    return typeof rawText === 'string' ? rawText.trim() : String(rawText ?? '').trim();
+}
+
+async function openLoreDiffModal() {
+    ensureSettings();
+
+    const modalUrl = new URL('./modal.html', import.meta.url);
+    const html = await fetch(modalUrl).then(r => {
+        if (!r.ok) throw new Error(`LoreDiff: Failed to load modal template: ${r.status} ${r.statusText}`);
+        return r.text();
+    });
+
+    const $dialog = $(html);
+    const baselineBook = extension_settings?.loreDiff?.baselineBook ?? 'STATE';
+    $dialog.find('#lorediff_modal_lorebook').text(baselineBook);
+
+    const context = getContext();
+    const chat = Array.isArray(context?.chat) ? context.chat : [];
+    const nonSystem = chat.filter(m => m && !m.is_system && typeof m.mes === 'string' && m.mes.trim().length);
+    const maxMessages = extension_settings?.loreDiff?.maxMessages ?? 40;
+    const startIdx = Math.max(0, nonSystem.length - maxMessages);
+    const endIdx = Math.max(0, nonSystem.length - 1);
+    $dialog.find('#lorediff_modal_range').text(`#${startIdx} → #${endIdx}`);
+
+    let lastDetectedParsed = null;
+    let lastSuggestion = '';
+    let lastStateLore = '';
+    let lastChatSnippet = '';
+
+    const closeFn = () => $('.popup').remove();
+
+    $dialog.find('#lorediff_modal_close').on('click', closeFn);
+
+    $dialog.find('#lorediff_modal_copy').on('click', async () => {
+        const text = String($dialog.find('#lorediff_modal_suggestion').val() ?? '').trim();
+        const toCopy = text || lastSuggestion || '';
+        if (!toCopy) {
+            toastr?.warning?.('LoreDiff: Nothing to copy.');
+            return;
+        }
+        await navigator.clipboard.writeText(toCopy);
+        toastr?.success?.('LoreDiff: Copied to clipboard.');
+    });
+
+    $dialog.find('#lorediff_modal_detect').on('click', async () => {
+        $dialog.find('#lorediff_modal_detect').prop('disabled', true);
+        $dialog.find('#lorediff_modal_results').text('Detecting...');
+        try {
+            lastChatSnippet = collectRecentChat(extension_settings.loreDiff.maxMessages, extension_settings.loreDiff.maxChars);
+            lastStateLore = await collectStateLoreText();
+            const { parsed, raw } = await detectChangesOnce();
+            lastDetectedParsed = parsed;
+
+            if (!parsed) {
+                $dialog.find('#lorediff_modal_results').text('Could not parse JSON result.\n\nRAW:\n' + raw);
+                $dialog.find('#lorediff_modal_suggest').prop('disabled', true);
+                return;
+            }
+
+            $dialog.find('#lorediff_modal_results').text(formatDetectedItems(parsed));
+            $dialog.find('#lorediff_modal_suggest').prop('disabled', parsed.status !== 'changes_detected');
+        } catch (err) {
+            console.error('LoreDiff modal detect failed', err);
+            $dialog.find('#lorediff_modal_results').text(String(err?.message ?? err));
+            $dialog.find('#lorediff_modal_suggest').prop('disabled', true);
+        } finally {
+            $dialog.find('#lorediff_modal_detect').prop('disabled', false);
+        }
+    });
+
+    $dialog.find('#lorediff_modal_suggest').on('click', async () => {
+        $dialog.find('#lorediff_modal_suggest').prop('disabled', true);
+        try {
+            const suggestion = await generateLoreSuggestion(lastStateLore, lastChatSnippet);
+            lastSuggestion = suggestion;
+            $dialog.find('#lorediff_modal_suggestion').val(suggestion);
+        } catch (err) {
+            console.error('LoreDiff modal suggest failed', err);
+            toastr?.error?.('LoreDiff: Suggestion request failed.');
+        } finally {
+            // keep disabled if no detected changes
+            $dialog.find('#lorediff_modal_suggest').prop('disabled', lastDetectedParsed?.status !== 'changes_detected');
+        }
+    });
+
+    callGenericPopup($dialog, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+}
+
 async function renderSettings() {
     ensureSettings();
     // Load settings.html relative to this module location.
@@ -669,4 +845,14 @@ eventSource.on(event_types.APP_READY, async () => {
     ensureSettings();
     await renderSettings();
     registerSlashCommand();
+
+    // Add wand-menu trigger
+    const wandButtonHtml = `
+        <div id="lorediff_wand_button" class="list-group-item flex-container flexGap5">
+            <div class="fa-solid fa-wand-magic-sparkles extensionsMenuExtensionButton" /></div>
+            LoreDiff
+        </div>`;
+    // Use an existing container to keep v1 minimal.
+    $('#data_bank_wand_container').append(wandButtonHtml);
+    $('#lorediff_wand_button').on('click', openLoreDiffModal);
 });

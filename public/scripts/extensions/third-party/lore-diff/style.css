@@ -33,3 +33,26 @@
   white-space: pre-wrap;
 }
 
+.lorediff_modal_title {
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
+.lorediff_modal_subtitle {
+  opacity: 0.85;
+  font-size: 0.9em;
+}
+
+.lorediff_modal_section_title {
+  font-weight: 700;
+}
+
+.lorediff_modal_block {
+  margin-top: 8px;
+  border: 1px solid var(--SmartThemeBorderColor);
+  border-radius: 6px;
+  padding: 10px;
+  white-space: pre-wrap;
+  max-height: 35vh;
+  overflow: auto;
+}
