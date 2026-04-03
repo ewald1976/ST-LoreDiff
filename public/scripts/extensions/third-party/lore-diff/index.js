@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { checkWorldInfo, worldInfoCache } from '/scripts/world-info.js';
+import { checkWorldInfo, worldInfoCache, getWorldInfoSettings } from '/scripts/world-info.js';
 
 export { MODULE_NAME };
 
@@ -142,11 +142,20 @@ function getSupportedProfilesSafe() {
 }
 
 function getAvailableLorebooks() {
-    // Best-effort: derive book names from loaded world info cache entries.
-    // This surfaces custom books like RELATIONS, etc.
+    // Best-effort: derive lorebook/book names from loaded world info data.
+    // Goal: surface custom books like RELATIONS, etc., even if not currently activated.
     const books = new Set();
 
     try {
+        // Prefer settings (contains all loaded WI, not only cached/activated).
+        const settings = typeof getWorldInfoSettings === 'function' ? getWorldInfoSettings() : null;
+        const worldInfoObj = settings?.world_info;
+        if (worldInfoObj && typeof worldInfoObj === 'object') {
+            for (const name of Object.keys(worldInfoObj)) {
+                if (name) books.add(String(name));
+            }
+        }
+
         const keys = typeof worldInfoCache?.keys === 'function' ? Array.from(worldInfoCache.keys()) : [];
         for (const k of keys) {
             const wi = worldInfoCache.get(k);
