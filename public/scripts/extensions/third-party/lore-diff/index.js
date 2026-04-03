@@ -53,7 +53,29 @@ Rules:
 - Only report if the chat introduces a NEW persistent fact, or CHANGES an existing persistent fact from baseline.
 - Ignore style, atmosphere, emotions, and transient dialogue.
 - If unsure, do NOT report.
-- Every item MUST include evidence quotes from the chat snippet.
+
+- Do NOT infer internal thoughts, intentions, or emotional states unless explicitly stated as persistent facts.
+- Internal thoughts or reflections are NOT persistent facts unless they result in an explicit, externally observable change.
+- Do NOT treat narrated or possibly unreliable past events as persistent facts unless clearly established as true.
+
+- Distinguish strictly:
+  - "possible_location_change" = a character physically moves location.
+  - "possible_world_fact" = a location is introduced or described.
+
+- A fact is persistent ONLY if it remains true beyond the current scene.
+
+Output rules:
+- Return ONLY valid JSON.
+- Do NOT use markdown.
+- Do NOT add any text before or after the JSON.
+- Keep output short and simple.
+- Return at most 3 items.
+- Use exactly 1 short evidence quote per item.
+- Labels must be short (max 6 words).
+- Reasons must be one short sentence.
+
+If no changes are found, return exactly:
+{"status":"no_change","items":[]}
 
 Output JSON schema:
 {
