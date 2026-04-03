@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { checkWorldInfo } from '/scripts/world-info.js';
+import { checkWorldInfo, worldInfoCache } from '/scripts/world-info.js';
 
 export { MODULE_NAME };
 
@@ -16,7 +16,7 @@ const DEFAULT_SETTINGS = {
     maxMessages: 40,
     maxChars: 12000,
     jsonMode: 'tolerant', // 'tolerant' | 'strict'
-    baselineBook: 'STATE', // 'STATE' | 'WORLD'
+    baselineBook: 'STATE', // arbitrary lorebook/book name (e.g. STATE, WORLD, RELATIONS)
     promptProfileId: 'default',
     promptProfiles: [],
 };
@@ -139,6 +139,57 @@ function getSupportedProfilesSafe() {
     } catch {
         return [];
     }
+}
+
+function getAvailableLorebooks() {
+    // Best-effort: derive book names from loaded world info cache entries.
+    // This surfaces custom books like RELATIONS, etc.
+    const books = new Set();
+
+    try {
+        const keys = typeof worldInfoCache?.keys === 'function' ? Array.from(worldInfoCache.keys()) : [];
+        for (const k of keys) {
+            const wi = worldInfoCache.get(k);
+            const entries = wi?.entries;
+            if (Array.isArray(entries)) {
+                for (const e of entries) {
+                    if (e?.book) books.add(String(e.book));
+                }
+            }
+            // Some data shapes include books as an object map.
+            const wiBooks = wi?.books;
+            if (wiBooks && typeof wiBooks === 'object') {
+                for (const b of Object.keys(wiBooks)) books.add(String(b));
+            }
+        }
+    } catch (err) {
+        console.warn('LoreDiff: Failed to enumerate lorebooks from worldInfoCache', err);
+    }
+
+    // Fallback to common defaults.
+    if (books.size === 0) {
+        books.add('STATE');
+        books.add('WORLD');
+    }
+
+    return Array.from(books).sort((a, b) => a.localeCompare(b));
+}
+
+function renderBaselineBookOptions() {
+    const $sel = $('#lorediff_baseline_book');
+    if ($sel.length === 0) return;
+
+    const books = getAvailableLorebooks();
+    $sel.empty();
+    for (const b of books) {
+        $sel.append($('<option></option>').attr('value', b).text(b));
+    }
+
+    const current = extension_settings?.loreDiff?.baselineBook ?? 'STATE';
+    if (!books.includes(current)) {
+        $sel.append($('<option></option>').attr('value', current).text(current));
+    }
+    $sel.val(current);
 }
 
 function getSelectedProfileIdByName(name) {
@@ -490,6 +541,7 @@ async function renderSettings() {
             extension_settings.loreDiff.baselineBook = String($(this).val());
             saveSettingsDebounced();
         });
+    renderBaselineBookOptions();
 
     $('#lorediff_max_chars')
         .val(extension_settings.loreDiff.maxChars)
