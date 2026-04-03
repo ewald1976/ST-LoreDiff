@@ -16,6 +16,8 @@ const DEFAULT_SETTINGS = {
     maxMessages: 40,
     maxChars: 12000,
     jsonMode: 'tolerant', // 'tolerant' | 'strict'
+    promptProfileId: 'default',
+    promptProfiles: [],
 };
 
 function ensureSettings() {
@@ -23,6 +25,89 @@ function ensureSettings() {
     for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
         if (extension_settings.loreDiff[k] === undefined) extension_settings.loreDiff[k] = v;
     }
+
+    // Seed prompt profiles if missing.
+    if (!Array.isArray(extension_settings.loreDiff.promptProfiles) || extension_settings.loreDiff.promptProfiles.length === 0) {
+        extension_settings.loreDiff.promptProfiles = [
+            {
+                id: 'default',
+                name: 'Default',
+                template: buildDefaultPromptTemplate(),
+            },
+        ];
+    }
+
+    // Ensure selected prompt profile exists.
+    const selectedId = extension_settings.loreDiff.promptProfileId ?? 'default';
+    if (!extension_settings.loreDiff.promptProfiles.some(p => p?.id === selectedId)) {
+        extension_settings.loreDiff.promptProfileId = extension_settings.loreDiff.promptProfiles[0]?.id ?? 'default';
+    }
+}
+
+function buildDefaultPromptTemplate() {
+    return (
+`Task: Compare the given baseline STATE lore with the recent chat snippet and detect ONLY meaningful persistent STATE changes.
+
+Rules:
+- Human-in-the-middle: do not apply changes.
+- Only report if the chat introduces a NEW persistent fact, or CHANGES an existing persistent fact from baseline.
+- Ignore style, atmosphere, emotions, and transient dialogue.
+- If unsure, do NOT report.
+- Every item MUST include evidence quotes from the chat snippet.
+
+Output JSON schema:
+{
+  "status": "changes_detected" | "no_change",
+  "items": [
+    {
+      "type": "possible_state_change" | "new_entity" | "possible_relation_change" | "possible_location_change" | "possible_world_fact",
+      "label": "short label",
+      "confidence": "low" | "medium" | "high",
+      "reason": "short reason",
+      "evidence": [ { "quote": "short quote" } ]
+    }
+  ]
+}
+
+Baseline STATE lore:
+{{stateLore}}
+
+Recent chat snippet:
+{{chatSnippet}}
+`
+    );
+}
+
+function getPromptProfiles() {
+    const list = extension_settings?.loreDiff?.promptProfiles;
+    return Array.isArray(list) ? list : [];
+}
+
+function getSelectedPromptProfile() {
+    const id = extension_settings?.loreDiff?.promptProfileId;
+    return getPromptProfiles().find(p => p?.id === id) ?? getPromptProfiles()[0] ?? null;
+}
+
+function renderPromptProfileOptions() {
+    const profiles = getPromptProfiles();
+    const $sel = $('#lorediff_prompt_profile');
+    if ($sel.length === 0) return;
+
+    $sel.empty();
+    for (const p of profiles) {
+        $sel.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
+    }
+    $sel.val(extension_settings.loreDiff.promptProfileId);
+}
+
+function updatePromptEditorFromSelection() {
+    const p = getSelectedPromptProfile();
+    $('#lorediff_prompt_template').val(p?.template ?? '');
+    $('#lorediff_prompt_profile_name').val(p?.name ?? '');
+}
+
+function makeId() {
+    return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function getSupportedProfilesSafe() {
@@ -204,7 +289,20 @@ function parseModelJson(rawText) {
     return { parsed: safeJsonParse(repaired), raw };
 }
 
+function substituteTemplate(template, vars) {
+    if (typeof template !== 'string') return '';
+    let out = template;
+    for (const [k, v] of Object.entries(vars)) {
+        out = out.replaceAll(`{{${k}}}`, v ?? '');
+    }
+    return out;
+}
+
 function buildPrompt({ stateLore, chatSnippet }) {
+    const selected = getSelectedPromptProfile();
+    const template = selected?.template || buildDefaultPromptTemplate();
+    const content = substituteTemplate(template, { stateLore, chatSnippet });
+
     return [
         {
             role: 'system',
@@ -213,8 +311,7 @@ function buildPrompt({ stateLore, chatSnippet }) {
         },
         {
             role: 'user',
-            content:
-`Task: Compare the given baseline STATE lore with the recent chat snippet and detect ONLY meaningful persistent STATE changes.\n\nRules:\n- Human-in-the-middle: do not apply changes.\n- Only report if the chat introduces a NEW persistent fact, or CHANGES an existing persistent fact from baseline.\n- Ignore style, atmosphere, emotions, and transient dialogue.\n- If unsure, do NOT report.\n- Every item MUST include evidence quotes from the chat snippet.\n\nOutput JSON schema:\n{\n  \"status\": \"changes_detected\" | \"no_change\",\n  \"items\": [\n    {\n      \"type\": \"possible_state_change\" | \"new_entity\" | \"possible_relation_change\" | \"possible_location_change\" | \"possible_world_fact\",\n      \"label\": \"short label\",\n      \"confidence\": \"low\" | \"medium\" | \"high\",\n      \"reason\": \"short reason\",\n      \"evidence\": [ { \"quote\": \"short quote\" } ]\n    }\n  ]\n}\n\nBaseline STATE lore:\n${stateLore}\n\nRecent chat snippet:\n${chatSnippet}\n`,
+            content,
         },
     ];
 }
@@ -371,6 +468,80 @@ async function renderSettings() {
             extension_settings.loreDiff.jsonMode = String($(this).val());
             saveSettingsDebounced();
         });
+
+    // Prompt profile UI
+    renderPromptProfileOptions();
+    updatePromptEditorFromSelection();
+
+    $('#lorediff_prompt_profile')
+        .val(extension_settings.loreDiff.promptProfileId)
+        .on('change', function () {
+            extension_settings.loreDiff.promptProfileId = String($(this).val());
+            updatePromptEditorFromSelection();
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_prompt_profile_name')
+        .val(getSelectedPromptProfile()?.name ?? '')
+        .on('input', function () {
+            const p = getSelectedPromptProfile();
+            if (!p) return;
+            p.name = String($(this).val());
+            renderPromptProfileOptions();
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_prompt_template')
+        .val(getSelectedPromptProfile()?.template ?? '')
+        .on('input', function () {
+            const p = getSelectedPromptProfile();
+            if (!p) return;
+            p.template = String($(this).val());
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_prompt_new').on('click', function () {
+        const id = makeId();
+        extension_settings.loreDiff.promptProfiles.push({
+            id,
+            name: 'New Prompt',
+            template: buildDefaultPromptTemplate(),
+        });
+        extension_settings.loreDiff.promptProfileId = id;
+        renderPromptProfileOptions();
+        updatePromptEditorFromSelection();
+        saveSettingsDebounced();
+    });
+
+    $('#lorediff_prompt_duplicate').on('click', function () {
+        const src = getSelectedPromptProfile();
+        if (!src) return;
+        const id = makeId();
+        extension_settings.loreDiff.promptProfiles.push({
+            id,
+            name: `${src.name ?? 'Prompt'} (Copy)`,
+            template: src.template ?? '',
+        });
+        extension_settings.loreDiff.promptProfileId = id;
+        renderPromptProfileOptions();
+        updatePromptEditorFromSelection();
+        saveSettingsDebounced();
+    });
+
+    $('#lorediff_prompt_delete').on('click', function () {
+        const id = extension_settings.loreDiff.promptProfileId;
+        const list = getPromptProfiles();
+        if (list.length <= 1) {
+            toastr?.warning?.('LoreDiff: At least one prompt profile must exist.');
+            return;
+        }
+        const idx = list.findIndex(p => p?.id === id);
+        if (idx >= 0) list.splice(idx, 1);
+        extension_settings.loreDiff.promptProfileId = list[0]?.id ?? 'default';
+        renderPromptProfileOptions();
+        updatePromptEditorFromSelection();
+        saveSettingsDebounced();
+    });
 
     $('#lorediff_run_btn').on('click', runLoreDiff);
     setProfileRowVisibility();
