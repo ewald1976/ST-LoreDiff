@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
     maxMessages: 40,
     maxChars: 12000,
     jsonMode: 'tolerant', // 'tolerant' | 'strict'
+    baselineBook: 'STATE', // 'STATE' | 'WORLD'
     promptProfileId: 'default',
     promptProfiles: [],
 };
@@ -46,7 +47,7 @@ function ensureSettings() {
 
 function buildDefaultPromptTemplate() {
     return (
-`Task: Compare the given baseline STATE lore with the recent chat snippet and detect ONLY meaningful persistent STATE changes.
+`Task: Compare the given baseline {{baselineBook}} lore with the recent chat snippet and detect ONLY meaningful persistent STATE changes.
 
 Rules:
 - Human-in-the-middle: do not apply changes.
@@ -91,7 +92,7 @@ Output JSON schema:
   ]
 }
 
-Baseline STATE lore:
+Baseline {{baselineBook}} lore:
 {{stateLore}}
 
 Recent chat snippet:
@@ -323,7 +324,11 @@ function substituteTemplate(template, vars) {
 function buildPrompt({ stateLore, chatSnippet }) {
     const selected = getSelectedPromptProfile();
     const template = selected?.template || buildDefaultPromptTemplate();
-    const content = substituteTemplate(template, { stateLore, chatSnippet });
+    const content = substituteTemplate(template, {
+        stateLore,
+        chatSnippet,
+        baselineBook: extension_settings?.loreDiff?.baselineBook ?? 'STATE',
+    });
 
     return [
         {
@@ -356,7 +361,8 @@ function collectRecentChat(maxMessages, maxChars) {
 }
 
 async function collectStateLoreText() {
-    // Use SillyTavern's own World Info scan engine (dry run) and then take only activated `STATE` entries.
+    // Use SillyTavern's own World Info scan engine (dry run) and then take only activated entries
+    // from the selected lorebook (STATE/WORLD).
     // This is robust across ST versions and keeps the baseline small (only relevant entries for the recent chat).
     const context = getContext();
     const chat = Array.isArray(context?.chat) ? context.chat : [];
@@ -373,8 +379,9 @@ async function collectStateLoreText() {
         const maxContext = 8192;
         const activated = await checkWorldInfo(recent, maxContext, true);
         const activatedEntries = Array.from(activated?.allActivatedEntries ?? []);
-        const stateEntries = activatedEntries.filter(e => e?.book === 'STATE');
-        const blocks = stateEntries
+        const baselineBook = extension_settings?.loreDiff?.baselineBook ?? 'STATE';
+        const selectedEntries = activatedEntries.filter(e => e?.book === baselineBook);
+        const blocks = selectedEntries
             .map(e => {
                 const title = e?.comment ? String(e.comment) : `uid:${e?.uid ?? ''}`;
                 const content = e?.content ? String(e.content) : '';
@@ -474,6 +481,13 @@ async function renderSettings() {
         .val(extension_settings.loreDiff.maxMessages)
         .on('input', function () {
             extension_settings.loreDiff.maxMessages = Number($(this).val()) || DEFAULT_SETTINGS.maxMessages;
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_baseline_book')
+        .val(extension_settings.loreDiff.baselineBook)
+        .on('change', function () {
+            extension_settings.loreDiff.baselineBook = String($(this).val());
             saveSettingsDebounced();
         });
 
