@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
-import { checkWorldInfo, worldInfoCache, getWorldInfoSettings } from '/scripts/world-info.js';
+import { checkWorldInfo, worldInfoCache, getWorldInfoSettings, world_names } from '/scripts/world-info.js';
 
 export { MODULE_NAME };
 
@@ -147,12 +147,18 @@ function getAvailableLorebooks() {
     const books = new Set();
 
     try {
+        if (Array.isArray(world_names) && world_names.length) {
+            for (const n of world_names) {
+                if (n) books.add(String(n));
+            }
+        }
+
         // Prefer settings (contains all loaded WI, not only cached/activated).
         const settings = typeof getWorldInfoSettings === 'function' ? getWorldInfoSettings() : null;
         const worldInfoObj = settings?.world_info;
         if (worldInfoObj && typeof worldInfoObj === 'object') {
             for (const name of Object.keys(worldInfoObj)) {
-                if (name) books.add(String(name));
+                if (name && name !== 'globalSelect') books.add(String(name));
             }
         }
 
