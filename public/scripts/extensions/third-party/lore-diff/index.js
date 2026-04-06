@@ -87,6 +87,18 @@ function ensureSettings() {
     if (!extension_settings.loreDiff.scenePromptProfiles.some(p => p?.id === sceneId)) {
         extension_settings.loreDiff.scenePromptProfileId = extension_settings.loreDiff.scenePromptProfiles[0]?.id ?? 'default';
     }
+
+    // Migrate legacy default SCENE prompt that echoed static sections (constraints/narrative_mode).
+    // Only touches the `default` profile and only if it still contains the old static blocks.
+    const defaultScene = extension_settings.loreDiff.scenePromptProfiles.find(p => p?.id === 'default');
+    if (defaultScene?.template && typeof defaultScene.template === 'string') {
+        const hasLegacyStaticBlocks =
+            defaultScene.template.includes('\n  constraints:\n') &&
+            defaultScene.template.includes('\n  narrative_mode:\n');
+        if (hasLegacyStaticBlocks) {
+            defaultScene.template = buildSceneStatePromptTemplate();
+        }
+    }
 }
 
 function buildDefaultPromptTemplate() {
