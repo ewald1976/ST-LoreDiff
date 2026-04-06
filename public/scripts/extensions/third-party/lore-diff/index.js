@@ -6,6 +6,7 @@ import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.j
 import { ConnectionManagerRequestService } from '/scripts/extensions/shared.js';
 import { checkWorldInfo, worldInfoCache, getWorldInfoSettings, world_names } from '/scripts/world-info.js';
 import { POPUP_TYPE, callGenericPopup } from '/scripts/popup.js';
+import { copyText } from '/scripts/utils.js';
 
 export { MODULE_NAME };
 
@@ -230,16 +231,6 @@ STATE:
   time: "<explicit time, or morning/afternoon/evening/night, or empty>"
   atmosphere: "<brief explicit atmosphere or empty>"
   situation: "<brief explicit current situation>"
-
-  constraints:
-    - characters remain in current location unless explicitly moved
-    - no sudden scene changes without cause
-    - actions must be physically plausible
-
-  narrative_mode:
-    - grounded interaction
-    - no meta commentary
-    - no narration of user intent
 
   notes:
     - "<optional explicit scene-relevant note>"
@@ -944,39 +935,6 @@ async function openLoreDiffModal() {
         lastStateLore = await collectStateLoreText();
     }
 
-    async function copyToClipboardCompat(text) {
-        const value = String(text ?? '');
-
-        // Preferred modern API (may fail on http or without user-gesture permissions).
-        try {
-            if (navigator?.clipboard?.writeText) {
-                await navigator.clipboard.writeText(value);
-                return true;
-            }
-        } catch {
-            // fall through to legacy path
-        }
-
-        // Legacy fallback for http / stricter browsers.
-        try {
-            const ta = document.createElement('textarea');
-            ta.value = value;
-            ta.setAttribute('readonly', '');
-            ta.style.position = 'fixed';
-            ta.style.top = '-1000px';
-            ta.style.left = '-1000px';
-            document.body.appendChild(ta);
-            ta.select();
-            ta.setSelectionRange(0, ta.value.length);
-            const ok = document.execCommand('copy');
-            document.body.removeChild(ta);
-            return !!ok;
-        } catch (err) {
-            console.warn('LoreDiff: copy fallback failed', err);
-            return false;
-        }
-    }
-
     function installCopy(btnSel, outSel) {
         $dialog.find(btnSel).on('click', async () => {
             const text = String($dialog.find(outSel).text() ?? '').trim();
@@ -984,10 +942,11 @@ async function openLoreDiffModal() {
                 toastr?.warning?.('LoreDiff: Nothing to copy.');
                 return;
             }
-            const ok = await copyToClipboardCompat(text);
-            if (ok) {
+            try {
+                await copyText(text);
                 toastr?.success?.('LoreDiff: Copied to clipboard.');
-            } else {
+            } catch (err) {
+                console.warn('LoreDiff: copyText failed', err);
                 toastr?.error?.('LoreDiff: Copy failed (browser limitation).');
             }
         });
