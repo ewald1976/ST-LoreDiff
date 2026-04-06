@@ -20,8 +20,14 @@ const DEFAULT_SETTINGS = {
     maxChars: 12000,
     jsonMode: 'tolerant', // 'tolerant' | 'strict'
     baselineBook: 'STATE', // arbitrary lorebook/book name (e.g. STATE, WORLD, RELATIONS)
+    // Legacy delta prompt profiles (kept for now)
     promptProfileId: 'default',
     promptProfiles: [],
+    // New: Story/Scene extraction prompt profiles
+    storyPromptProfileId: 'default',
+    storyPromptProfiles: [],
+    scenePromptProfileId: 'default',
+    scenePromptProfiles: [],
     externalApiBaseUrl: '',
     externalApiKey: '',
     externalModel: '',
@@ -49,6 +55,36 @@ function ensureSettings() {
     const selectedId = extension_settings.loreDiff.promptProfileId ?? 'default';
     if (!extension_settings.loreDiff.promptProfiles.some(p => p?.id === selectedId)) {
         extension_settings.loreDiff.promptProfileId = extension_settings.loreDiff.promptProfiles[0]?.id ?? 'default';
+    }
+
+    // Seed STORY_STATE profiles if missing.
+    if (!Array.isArray(extension_settings.loreDiff.storyPromptProfiles) || extension_settings.loreDiff.storyPromptProfiles.length === 0) {
+        extension_settings.loreDiff.storyPromptProfiles = [
+            {
+                id: 'default',
+                name: 'Default',
+                template: buildStoryStatePromptTemplate(),
+            },
+        ];
+    }
+    const storyId = extension_settings.loreDiff.storyPromptProfileId ?? 'default';
+    if (!extension_settings.loreDiff.storyPromptProfiles.some(p => p?.id === storyId)) {
+        extension_settings.loreDiff.storyPromptProfileId = extension_settings.loreDiff.storyPromptProfiles[0]?.id ?? 'default';
+    }
+
+    // Seed SCENE STATE profiles if missing.
+    if (!Array.isArray(extension_settings.loreDiff.scenePromptProfiles) || extension_settings.loreDiff.scenePromptProfiles.length === 0) {
+        extension_settings.loreDiff.scenePromptProfiles = [
+            {
+                id: 'default',
+                name: 'Default',
+                template: buildSceneStatePromptTemplate(),
+            },
+        ];
+    }
+    const sceneId = extension_settings.loreDiff.scenePromptProfileId ?? 'default';
+    if (!extension_settings.loreDiff.scenePromptProfiles.some(p => p?.id === sceneId)) {
+        extension_settings.loreDiff.scenePromptProfileId = extension_settings.loreDiff.scenePromptProfiles[0]?.id ?? 'default';
     }
 }
 
@@ -104,6 +140,124 @@ Baseline {{baselineBook}} lore:
 
 Recent chat snippet:
 {{chatSnippet}}
+`
+    );
+}
+
+function buildStoryStatePromptTemplate() {
+    return (
+`You are a STRICT STORY STATE EXTRACTOR.
+
+Your task is to extract ONLY explicit long-term story-relevant information from the provided material.
+
+SOURCE PRIORITY:
+1. Recent chat snippet
+2. Scene summary
+3. Baseline STATE lore = context only
+
+CRITICAL RULES:
+- Do NOT explain anything
+- Do NOT add interpretation beyond the text
+- Do NOT infer motives, history, symbolism, or hidden meaning
+- Do NOT generalize
+- Keep everything short and concrete
+- Maximum 5 items per section
+- If unsure, leave it out
+- Empty fields are valid
+- Use baseline STATE lore only to understand context, never to invent new story elements
+
+VERY IMPORTANT:
+- If no explicit mission or goal is stated in the chat snippet or summary, set active_mission to ""
+- Do NOT create a mission from general conversation alone
+- Do NOT convert atmosphere, hospitality, weather, or casual actions into discoveries unless they clearly matter to the ongoing story
+- Do NOT repeat stable background facts unless they became newly relevant in this scene
+
+OUTPUT FORMAT:
+
+STORY_STATE:
+  active_mission: "<short sentence or empty>"
+
+  discoveries:
+    - "<new long-term fact from this scene>"
+
+  tensions:
+    - "<ongoing conflict, risk, or unresolved pressure explicitly present>"
+
+  notes:
+    - "<optional subtle but explicit observation>"
+
+If you find nothing worth mentioning, say so.
+---
+
+INPUT SUMMARY:
+{{SUMMARY}}
+
+BASELINE STATE LORE:
+{{stateLore}}
+
+RECENT CHAT SNIPPET:
+{{chatSnippet}}
+
+---
+OUTPUT:
+`
+    );
+}
+
+function buildSceneStatePromptTemplate() {
+    return (
+`You are a STRICT SCENE STATE EXTRACTOR.
+
+Your task is to extract ONLY the current scene state from the provided material.
+
+SOURCE PRIORITY:
+1. Recent chat snippet
+2. Scene summary
+3. Baseline STATE lore = context only
+
+CRITICAL RULES:
+- Do NOT explain anything
+- Do NOT add interpretation beyond the text
+- Do NOT infer emotions unless clearly shown or stated
+- Keep everything short and concrete
+- Empty fields are valid
+- Use baseline STATE lore only to understand context, never to invent new scene details
+
+OUTPUT FORMAT:
+
+STATE:
+  location: "<explicit location or empty>"
+  time: "<explicit time, or morning/afternoon/evening/night, or empty>"
+  atmosphere: "<brief explicit atmosphere or empty>"
+  situation: "<brief explicit current situation>"
+
+  constraints:
+    - characters remain in current location unless explicitly moved
+    - no sudden scene changes without cause
+    - actions must be physically plausible
+
+  narrative_mode:
+    - grounded interaction
+    - no meta commentary
+    - no narration of user intent
+
+  notes:
+    - "<optional explicit scene-relevant note>"
+
+---
+
+INPUT SUMMARY:
+{{SUMMARY}}
+
+BASELINE STATE LORE:
+{{stateLore}}
+
+RECENT CHAT SNIPPET:
+{{chatSnippet}}
+
+---
+
+OUTPUT:
 `
     );
 }
@@ -684,6 +838,53 @@ RELATION
     return typeof rawText === 'string' ? rawText.trim() : String(rawText ?? '').trim();
 }
 
+function getStoryProfiles() {
+    const list = extension_settings?.loreDiff?.storyPromptProfiles;
+    return Array.isArray(list) ? list : [];
+}
+
+function getSceneProfiles() {
+    const list = extension_settings?.loreDiff?.scenePromptProfiles;
+    return Array.isArray(list) ? list : [];
+}
+
+function getSelectedStoryProfile() {
+    const id = extension_settings?.loreDiff?.storyPromptProfileId;
+    return getStoryProfiles().find(p => p?.id === id) ?? getStoryProfiles()[0] ?? null;
+}
+
+function getSelectedSceneProfile() {
+    const id = extension_settings?.loreDiff?.scenePromptProfileId;
+    return getSceneProfiles().find(p => p?.id === id) ?? getSceneProfiles()[0] ?? null;
+}
+
+async function runTextExtraction({ kind, summary, stateLore, chatSnippet }) {
+    ensureSettings();
+    const baselineBook = extension_settings?.loreDiff?.baselineBook ?? 'STATE';
+
+    const profile =
+        kind === 'story'
+            ? (getSelectedStoryProfile() ?? { template: buildStoryStatePromptTemplate() })
+            : (getSelectedSceneProfile() ?? { template: buildSceneStatePromptTemplate() });
+
+    const template = profile?.template ?? '';
+    const promptText = substituteTemplate(template, {
+        SUMMARY: summary ?? '',
+        stateLore,
+        chatSnippet,
+        baselineBook,
+    });
+
+    const messages = [
+        { role: 'system', content: 'Follow the instructions exactly. Output only the requested format.' },
+        { role: 'user', content: promptText },
+    ];
+
+    const extracted = await sendAnalysisRequest(messages, extension_settings.loreDiff.maxTokens);
+    const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
+    return typeof rawText === 'string' ? rawText.trim() : String(rawText ?? '').trim();
+}
+
 async function openLoreDiffModal() {
     ensureSettings();
 
@@ -709,60 +910,105 @@ async function openLoreDiffModal() {
     let lastSuggestion = '';
     let lastStateLore = '';
     let lastChatSnippet = '';
+    let lastSummary = '';
 
     const closeFn = () => $('.popup').remove();
-
     $dialog.find('#lorediff_modal_close').on('click', closeFn);
 
-    $dialog.find('#lorediff_modal_copy').on('click', async () => {
-        const text = String($dialog.find('#lorediff_modal_suggestion').val() ?? '').trim();
-        const toCopy = text || lastSuggestion || '';
-        if (!toCopy) {
-            toastr?.warning?.('LoreDiff: Nothing to copy.');
-            return;
-        }
-        await navigator.clipboard.writeText(toCopy);
-        toastr?.success?.('LoreDiff: Copied to clipboard.');
+    // Populate prompt profile dropdowns
+    const $storySel = $dialog.find('#lorediff_modal_story_profile');
+    $storySel.empty();
+    for (const p of getStoryProfiles()) $storySel.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
+    $storySel.val(extension_settings.loreDiff.storyPromptProfileId);
+    $storySel.on('change', function () {
+        extension_settings.loreDiff.storyPromptProfileId = String($(this).val());
+        saveSettingsDebounced();
     });
 
-    $dialog.find('#lorediff_modal_detect').on('click', async () => {
-        $dialog.find('#lorediff_modal_detect').prop('disabled', true);
-        $dialog.find('#lorediff_modal_results').text('Detecting...');
-        try {
-            lastChatSnippet = collectRecentChat(extension_settings.loreDiff.maxMessages, extension_settings.loreDiff.maxChars);
-            lastStateLore = await collectStateLoreText();
-            const { parsed, raw } = await detectChangesOnce();
-            lastDetectedParsed = parsed;
+    const $sceneSel = $dialog.find('#lorediff_modal_scene_profile');
+    $sceneSel.empty();
+    for (const p of getSceneProfiles()) $sceneSel.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
+    $sceneSel.val(extension_settings.loreDiff.scenePromptProfileId);
+    $sceneSel.on('change', function () {
+        extension_settings.loreDiff.scenePromptProfileId = String($(this).val());
+        saveSettingsDebounced();
+    });
 
-            if (!parsed) {
-                $dialog.find('#lorediff_modal_results').text('Could not parse JSON result.\n\nRAW:\n' + raw);
-                $dialog.find('#lorediff_modal_suggest').prop('disabled', true);
+    function refreshInputs() {
+        lastSummary = String($dialog.find('#lorediff_modal_summary').val() ?? '');
+        lastChatSnippet = collectRecentChat(extension_settings.loreDiff.maxMessages, extension_settings.loreDiff.maxChars);
+    }
+
+    async function ensureBaseline() {
+        refreshInputs();
+        lastStateLore = await collectStateLoreText();
+    }
+
+    function installCopy(btnSel, outSel) {
+        $dialog.find(btnSel).on('click', async () => {
+            const text = String($dialog.find(outSel).text() ?? '').trim();
+            if (!text || text === 'No result yet.') {
+                toastr?.warning?.('LoreDiff: Nothing to copy.');
                 return;
             }
+            await navigator.clipboard.writeText(text);
+            toastr?.success?.('LoreDiff: Copied to clipboard.');
+        });
+    }
+    installCopy('#lorediff_modal_story_copy', '#lorediff_modal_story_out');
+    installCopy('#lorediff_modal_scene_copy', '#lorediff_modal_scene_out');
 
-            $dialog.find('#lorediff_modal_results').text(formatDetectedItems(parsed));
-            $dialog.find('#lorediff_modal_suggest').prop('disabled', parsed.status !== 'changes_detected');
+    async function editPrompt(kind) {
+        const profile = kind === 'story' ? getSelectedStoryProfile() : getSelectedSceneProfile();
+        if (!profile) return;
+        const title = kind === 'story' ? 'Edit STORY_STATE prompt' : 'Edit STATE prompt';
+        const textarea = $('<textarea class="text_pole textarea_compact" rows="16"></textarea>');
+        textarea.val(profile.template ?? '');
+        const wrapper = $('<div></div>');
+        wrapper.append(`<div style="opacity:0.85;margin-bottom:8px;">Profile: ${profile.name ?? profile.id}</div>`);
+        wrapper.append(textarea);
+        const result = await callGenericPopup(wrapper, POPUP_TYPE.CONFIRM, title, { okButton: 'Save', cancelButton: 'Cancel', wide: true, large: true, allowVerticalScrolling: true });
+        if (result) {
+            profile.template = String(textarea.val() ?? '');
+            saveSettingsDebounced();
+            toastr?.success?.('LoreDiff: Prompt saved.');
+        }
+    }
+
+    $dialog.find('#lorediff_modal_story_edit').on('click', () => editPrompt('story'));
+    $dialog.find('#lorediff_modal_scene_edit').on('click', () => editPrompt('scene'));
+
+    $dialog.find('#lorediff_modal_story_run').on('click', async () => {
+        $dialog.find('#lorediff_modal_story_run').prop('disabled', true);
+        $dialog.find('#lorediff_modal_story_out').text('Generating...');
+        $dialog.find('#lorediff_modal_story_copy').prop('disabled', true);
+        try {
+            await ensureBaseline();
+            const out = await runTextExtraction({ kind: 'story', summary: lastSummary, stateLore: lastStateLore, chatSnippet: lastChatSnippet });
+            $dialog.find('#lorediff_modal_story_out').text(out || 'No output.');
+            $dialog.find('#lorediff_modal_story_copy').prop('disabled', !out);
         } catch (err) {
-            console.error('LoreDiff modal detect failed', err);
-            $dialog.find('#lorediff_modal_results').text(String(err?.message ?? err));
-            $dialog.find('#lorediff_modal_suggest').prop('disabled', true);
+            console.error('LoreDiff story run failed', err);
+            $dialog.find('#lorediff_modal_story_out').text(String(err?.message ?? err));
         } finally {
-            $dialog.find('#lorediff_modal_detect').prop('disabled', false);
+            $dialog.find('#lorediff_modal_story_run').prop('disabled', false);
         }
     });
 
-    $dialog.find('#lorediff_modal_suggest').on('click', async () => {
-        $dialog.find('#lorediff_modal_suggest').prop('disabled', true);
+    $dialog.find('#lorediff_modal_scene_run').on('click', async () => {
+        $dialog.find('#lorediff_modal_scene_run').prop('disabled', true);
+        $dialog.find('#lorediff_modal_scene_out').text('Generating...');
+        $dialog.find('#lorediff_modal_scene_copy').prop('disabled', true);
         try {
-            const suggestion = await generateLoreSuggestion(lastStateLore, lastChatSnippet);
-            lastSuggestion = suggestion;
-            $dialog.find('#lorediff_modal_suggestion').val(suggestion);
+            await ensureBaseline();
+            const out = await runTextExtraction({ kind: 'scene', summary: lastSummary, stateLore: lastStateLore, chatSnippet: lastChatSnippet });
+            $dialog.find('#lorediff_modal_scene_out').text(out || 'No output.');
+            $dialog.find('#lorediff_modal_scene_copy').prop('disabled', !out);
         } catch (err) {
-            console.error('LoreDiff modal suggest failed', err);
-            toastr?.error?.('LoreDiff: Suggestion request failed.');
+            console.error('LoreDiff scene run failed', err);
+            $dialog.find('#lorediff_modal_scene_out').text(String(err?.message ?? err));
         } finally {
-            // keep disabled if no detected changes
-            $dialog.find('#lorediff_modal_suggest').prop('disabled', lastDetectedParsed?.status !== 'changes_detected');
+            $dialog.find('#lorediff_modal_scene_run').prop('disabled', false);
         }
     });
 
@@ -884,80 +1130,6 @@ async function renderSettings() {
             extension_settings.loreDiff.jsonMode = String($(this).val());
             saveSettingsDebounced();
         });
-
-    // Prompt profile UI
-    renderPromptProfileOptions();
-    updatePromptEditorFromSelection();
-
-    $('#lorediff_prompt_profile')
-        .val(extension_settings.loreDiff.promptProfileId)
-        .on('change', function () {
-            extension_settings.loreDiff.promptProfileId = String($(this).val());
-            updatePromptEditorFromSelection();
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_prompt_profile_name')
-        .val(getSelectedPromptProfile()?.name ?? '')
-        .on('input', function () {
-            const p = getSelectedPromptProfile();
-            if (!p) return;
-            p.name = String($(this).val());
-            renderPromptProfileOptions();
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_prompt_template')
-        .val(getSelectedPromptProfile()?.template ?? '')
-        .on('input', function () {
-            const p = getSelectedPromptProfile();
-            if (!p) return;
-            p.template = String($(this).val());
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_prompt_new').on('click', function () {
-        const id = makeId();
-        extension_settings.loreDiff.promptProfiles.push({
-            id,
-            name: 'New Prompt',
-            template: buildDefaultPromptTemplate(),
-        });
-        extension_settings.loreDiff.promptProfileId = id;
-        renderPromptProfileOptions();
-        updatePromptEditorFromSelection();
-        saveSettingsDebounced();
-    });
-
-    $('#lorediff_prompt_duplicate').on('click', function () {
-        const src = getSelectedPromptProfile();
-        if (!src) return;
-        const id = makeId();
-        extension_settings.loreDiff.promptProfiles.push({
-            id,
-            name: `${src.name ?? 'Prompt'} (Copy)`,
-            template: src.template ?? '',
-        });
-        extension_settings.loreDiff.promptProfileId = id;
-        renderPromptProfileOptions();
-        updatePromptEditorFromSelection();
-        saveSettingsDebounced();
-    });
-
-    $('#lorediff_prompt_delete').on('click', function () {
-        const id = extension_settings.loreDiff.promptProfileId;
-        const list = getPromptProfiles();
-        if (list.length <= 1) {
-            toastr?.warning?.('LoreDiff: At least one prompt profile must exist.');
-            return;
-        }
-        const idx = list.findIndex(p => p?.id === id);
-        if (idx >= 0) list.splice(idx, 1);
-        extension_settings.loreDiff.promptProfileId = list[0]?.id ?? 'default';
-        renderPromptProfileOptions();
-        updatePromptEditorFromSelection();
-        saveSettingsDebounced();
-    });
 
     $('#lorediff_run_btn').on('click', runLoreDiff);
     setConnectionControlsVisibility();

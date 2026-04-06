@@ -47,6 +47,12 @@
   font-weight: 700;
 }
 
+.lorediff_modal_hint {
+  opacity: 0.85;
+  font-size: 0.9em;
+  margin: 6px 0;
+}
+
 .lorediff_modal_block {
   margin-top: 8px;
   border: 1px solid var(--SmartThemeBorderColor);
