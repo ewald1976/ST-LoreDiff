@@ -12,14 +12,20 @@ export { MODULE_NAME };
 const MODULE_NAME = 'lore-diff';
 
 const DEFAULT_SETTINGS = {
+    requestMode: 'st', // 'st' | 'external'
     profileMode: 'same', // 'same' | 'profile'
     profileId: null,
     maxMessages: 40,
+    maxTokens: 600,
     maxChars: 12000,
     jsonMode: 'tolerant', // 'tolerant' | 'strict'
     baselineBook: 'STATE', // arbitrary lorebook/book name (e.g. STATE, WORLD, RELATIONS)
     promptProfileId: 'default',
     promptProfiles: [],
+    externalApiBaseUrl: '',
+    externalApiKey: '',
+    externalModel: '',
+    externalTemperature: 0.3,
 };
 
 function ensureSettings() {
@@ -238,6 +244,17 @@ function pickAnalysisProfileId() {
     return getChatProfileId();
 }
 
+function isExternalMode() {
+    return extension_settings?.loreDiff?.requestMode === 'external';
+}
+
+function setConnectionControlsVisibility() {
+    const external = isExternalMode();
+    $('#lorediff_profile_mode').closest('.flex-container').toggleClass('hidden', external);
+    $('#lorediff_profile_row').toggleClass('hidden', external || extension_settings.loreDiff.profileMode !== 'profile');
+    $('#lorediff_external_block').toggleClass('hidden', !external);
+}
+
 function setProfileRowVisibility() {
     const show = extension_settings.loreDiff.profileMode === 'profile';
     $('#lorediff_profile_row').toggleClass('hidden', !show);
@@ -416,6 +433,69 @@ function truncateToChars(text, maxChars) {
     return text.slice(text.length - maxChars);
 }
 
+function normalizeBaseUrl(url) {
+    const s = String(url ?? '').trim();
+    return s.replace(/\/+$/, '');
+}
+
+async function sendExternalChatCompletion(messages, maxTokens) {
+    const baseUrl = normalizeBaseUrl(extension_settings?.loreDiff?.externalApiBaseUrl);
+    const apiKey = String(extension_settings?.loreDiff?.externalApiKey ?? '');
+    const model = String(extension_settings?.loreDiff?.externalModel ?? '').trim();
+    const temperature = Number(extension_settings?.loreDiff?.externalTemperature ?? 0.3);
+
+    if (!baseUrl) throw new Error('LoreDiff: External API base URL is missing.');
+    if (!model) throw new Error('LoreDiff: External model is missing.');
+
+    const url = `${baseUrl}/chat/completions`;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+            model,
+            messages,
+            stream: false,
+            max_tokens: maxTokens,
+            temperature,
+        }),
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+        throw new Error(`LoreDiff: External API error ${res.status}: ${text.slice(0, 500)}`);
+    }
+
+    let data;
+    try { data = JSON.parse(text); } catch { data = null; }
+    if (!data) {
+        throw new Error('LoreDiff: External API returned non-JSON response.');
+    }
+
+    const choice = Array.isArray(data.choices) ? data.choices[0] : null;
+    const content =
+        choice?.message?.content ??
+        choice?.delta?.content ??
+        choice?.text ??
+        '';
+    return String(content ?? '');
+}
+
+async function sendAnalysisRequest(messages, maxTokens) {
+    if (isExternalMode()) {
+        const content = await sendExternalChatCompletion(messages, maxTokens);
+        return { content };
+    }
+
+    const profileId = pickAnalysisProfileId();
+    if (!profileId) {
+        throw new Error('LoreDiff: No active Connection Manager profile selected (set one, or choose a profile in LoreDiff settings).');
+    }
+    return await ConnectionManagerRequestService.sendRequest(profileId, messages, maxTokens, { includeInstruct: true, includePreset: true });
+}
+
 function collectRecentChat(maxMessages, maxChars) {
     const context = getContext();
     const chat = Array.isArray(context?.chat) ? context.chat : [];
@@ -465,28 +545,13 @@ async function collectStateLoreText() {
 async function runLoreDiff() {
     ensureSettings();
 
-    const profileId = pickAnalysisProfileId();
-    if (extension_settings.loreDiff.profileMode === 'profile' && !profileId) {
-        renderResults({ status: 'no_change', items: [] });
-        toastr?.warning?.('LoreDiff: Please select an analysis profile.');
-        return;
-    }
-
     const chatSnippet = collectRecentChat(extension_settings.loreDiff.maxMessages, extension_settings.loreDiff.maxChars);
     const stateLore = await collectStateLoreText();
     const messages = buildPrompt({ stateLore, chatSnippet });
 
     try {
         $('#lorediff_run_btn').prop('disabled', true);
-
-        // If profileId is null: we currently don't have a stable public API to "use current chat connection"
-        // from third-party code. For MVP we require Connection Manager and use its selected profile when in "same" mode.
-        if (!profileId) {
-            toastr?.error?.('LoreDiff: No active Connection Manager profile selected (set one, or choose a profile in LoreDiff settings).');
-            return;
-        }
-
-        const extracted = await ConnectionManagerRequestService.sendRequest(profileId, messages, 512, { includeInstruct: true, includePreset: true });
+        const extracted = await sendAnalysisRequest(messages, extension_settings.loreDiff.maxTokens);
         const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
         const { parsed, raw } = parseModelJson(typeof rawText === 'string' ? rawText : String(rawText ?? ''));
 
@@ -537,26 +602,16 @@ function formatDetectedItems(result) {
 async function detectChangesOnce() {
     ensureSettings();
 
-    const profileId = pickAnalysisProfileId();
-    if (!profileId) {
-        throw new Error('No active Connection Manager profile selected');
-    }
-
     const chatSnippet = collectRecentChat(extension_settings.loreDiff.maxMessages, extension_settings.loreDiff.maxChars);
     const stateLore = await collectStateLoreText();
     const messages = buildPrompt({ stateLore, chatSnippet });
-
-    const extracted = await ConnectionManagerRequestService.sendRequest(profileId, messages, 600, { includeInstruct: true, includePreset: true });
+    const extracted = await sendAnalysisRequest(messages, extension_settings.loreDiff.maxTokens);
     const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
     return parseModelJson(typeof rawText === 'string' ? rawText : String(rawText ?? ''));
 }
 
 async function generateLoreSuggestion(stateLore, chatSnippet) {
     ensureSettings();
-    const profileId = pickAnalysisProfileId();
-    if (!profileId) {
-        throw new Error('No active Connection Manager profile selected');
-    }
 
     const baseUserPrompt = buildPrompt({ stateLore, chatSnippet })?.find(m => m?.role === 'user')?.content ?? '';
     const prompt = [
@@ -594,7 +649,7 @@ RELATION
         },
     ];
 
-    const extracted = await ConnectionManagerRequestService.sendRequest(profileId, prompt, 600, { includeInstruct: true, includePreset: true });
+    const extracted = await sendAnalysisRequest(prompt, extension_settings.loreDiff.maxTokens);
     const rawText = extracted?.content ?? extracted?.data ?? extracted?.text ?? extracted?.message ?? '';
     return typeof rawText === 'string' ? rawText.trim() : String(rawText ?? '').trim();
 }
@@ -708,7 +763,7 @@ async function renderSettings() {
         .val(extension_settings.loreDiff.profileMode)
         .on('change', function () {
             extension_settings.loreDiff.profileMode = String($(this).val());
-            setProfileRowVisibility();
+            setConnectionControlsVisibility();
             saveSettingsDebounced();
         });
 
@@ -716,6 +771,42 @@ async function renderSettings() {
         .val(extension_settings.loreDiff.profileId ?? '')
         .on('change', function () {
             extension_settings.loreDiff.profileId = String($(this).val()) || null;
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_request_mode')
+        .val(extension_settings.loreDiff.requestMode)
+        .on('change', function () {
+            extension_settings.loreDiff.requestMode = String($(this).val());
+            setConnectionControlsVisibility();
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_external_base_url')
+        .val(extension_settings.loreDiff.externalApiBaseUrl)
+        .on('input', function () {
+            extension_settings.loreDiff.externalApiBaseUrl = String($(this).val());
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_external_api_key')
+        .val(extension_settings.loreDiff.externalApiKey)
+        .on('input', function () {
+            extension_settings.loreDiff.externalApiKey = String($(this).val());
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_external_model')
+        .val(extension_settings.loreDiff.externalModel)
+        .on('input', function () {
+            extension_settings.loreDiff.externalModel = String($(this).val());
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_external_temperature')
+        .val(extension_settings.loreDiff.externalTemperature)
+        .on('input', function () {
+            extension_settings.loreDiff.externalTemperature = Number($(this).val());
             saveSettingsDebounced();
         });
 
@@ -738,6 +829,13 @@ async function renderSettings() {
         .val(extension_settings.loreDiff.maxChars)
         .on('input', function () {
             extension_settings.loreDiff.maxChars = Number($(this).val()) || DEFAULT_SETTINGS.maxChars;
+            saveSettingsDebounced();
+        });
+
+    $('#lorediff_max_tokens')
+        .val(extension_settings.loreDiff.maxTokens)
+        .on('input', function () {
+            extension_settings.loreDiff.maxTokens = Number($(this).val()) || DEFAULT_SETTINGS.maxTokens;
             saveSettingsDebounced();
         });
 
@@ -823,7 +921,7 @@ async function renderSettings() {
     });
 
     $('#lorediff_run_btn').on('click', runLoreDiff);
-    setProfileRowVisibility();
+    setConnectionControlsVisibility();
 }
 
 function registerSlashCommand() {

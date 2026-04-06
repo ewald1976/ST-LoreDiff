@@ -9,6 +9,14 @@
 
     <div class="inline-drawer-content">
       <div class="flex-container flexGap10 alignItemsCenter">
+        <label for="lorediff_request_mode" style="min-width: 180px;">Generation mode</label>
+        <select id="lorediff_request_mode">
+          <option value="st">SillyTavern (Connection Manager)</option>
+          <option value="external">External API (OpenAI-compatible)</option>
+        </select>
+      </div>
+
+      <div class="flex-container flexGap10 alignItemsCenter">
         <label for="lorediff_profile_mode" style="min-width: 180px;">Analysis connection</label>
         <select id="lorediff_profile_mode">
           <option value="same">Same as chat</option>
@@ -19,6 +27,28 @@
       <div class="flex-container flexGap10 alignItemsCenter" id="lorediff_profile_row">
         <label for="lorediff_profile_id" style="min-width: 180px;">Analysis profile</label>
         <select id="lorediff_profile_id"></select>
+      </div>
+
+      <div id="lorediff_external_block" class="hidden">
+        <div class="flex-container flexGap10 alignItemsCenter">
+          <label for="lorediff_external_base_url" style="min-width: 180px;">API Base URL</label>
+          <input id="lorediff_external_base_url" type="text" class="text_pole" placeholder="http://127.0.0.1:1234/v1" />
+        </div>
+
+        <div class="flex-container flexGap10 alignItemsCenter">
+          <label for="lorediff_external_api_key" style="min-width: 180px;">API Key</label>
+          <input id="lorediff_external_api_key" type="password" class="text_pole" placeholder="sk-..." />
+        </div>
+
+        <div class="flex-container flexGap10 alignItemsCenter">
+          <label for="lorediff_external_model" style="min-width: 180px;">Model</label>
+          <input id="lorediff_external_model" type="text" class="text_pole" placeholder="qwen3:4b" />
+        </div>
+
+        <div class="flex-container flexGap10 alignItemsCenter">
+          <label for="lorediff_external_temperature" style="min-width: 180px;">Temperature</label>
+          <input id="lorediff_external_temperature" type="number" min="0" max="2" step="0.05" />
+        </div>
       </div>
 
       <div class="flex-container flexGap10 alignItemsCenter">
@@ -34,6 +64,11 @@
       <div class="flex-container flexGap10 alignItemsCenter">
         <label for="lorediff_max_chars" style="min-width: 180px;">Analysis budget (chars)</label>
         <input id="lorediff_max_chars" type="number" min="1000" max="100000" step="500" />
+      </div>
+
+      <div class="flex-container flexGap10 alignItemsCenter">
+        <label for="lorediff_max_tokens" style="min-width: 180px;">Max tokens</label>
+        <input id="lorediff_max_tokens" type="number" min="64" max="4096" step="16" />
       </div>
 
       <div class="flex-container flexGap10 alignItemsCenter">
