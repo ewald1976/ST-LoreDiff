@@ -438,6 +438,36 @@ function normalizeBaseUrl(url) {
     return s.replace(/\/+$/, '');
 }
 
+async function testExternalConnection() {
+    const baseUrl = normalizeBaseUrl(extension_settings?.loreDiff?.externalApiBaseUrl);
+    const apiKey = String(extension_settings?.loreDiff?.externalApiKey ?? '');
+    if (!baseUrl) {
+        toastr?.error?.('LoreDiff: External API base URL is missing.');
+        return;
+    }
+
+    const url = `${baseUrl}/models`;
+    try {
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+                ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+            },
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 300)}`);
+        }
+        let data = null;
+        try { data = JSON.parse(text); } catch { /* ignore */ }
+        const count = Array.isArray(data?.data) ? data.data.length : null;
+        toastr?.success?.(`LoreDiff: Connection OK${typeof count === 'number' ? ` (${count} models)` : ''}.`);
+    } catch (err) {
+        console.error('LoreDiff external connection test failed', err);
+        toastr?.error?.(`LoreDiff: Connection failed (${String(err?.message ?? err)})`);
+    }
+}
+
 async function sendExternalChatCompletion(messages, maxTokens) {
     const baseUrl = normalizeBaseUrl(extension_settings?.loreDiff?.externalApiBaseUrl);
     const apiKey = String(extension_settings?.loreDiff?.externalApiKey ?? '');
@@ -809,6 +839,15 @@ async function renderSettings() {
             extension_settings.loreDiff.externalTemperature = Number($(this).val());
             saveSettingsDebounced();
         });
+
+    $('#lorediff_external_test').on('click', async () => {
+        $('#lorediff_external_test').prop('disabled', true);
+        try {
+            await testExternalConnection();
+        } finally {
+            $('#lorediff_external_test').prop('disabled', false);
+        }
+    });
 
     $('#lorediff_max_messages')
         .val(extension_settings.loreDiff.maxMessages)
