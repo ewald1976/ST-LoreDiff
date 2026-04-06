@@ -944,6 +944,39 @@ async function openLoreDiffModal() {
         lastStateLore = await collectStateLoreText();
     }
 
+    async function copyToClipboardCompat(text) {
+        const value = String(text ?? '');
+
+        // Preferred modern API (may fail on http or without user-gesture permissions).
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+                return true;
+            }
+        } catch {
+            // fall through to legacy path
+        }
+
+        // Legacy fallback for http / stricter browsers.
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = value;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-1000px';
+            ta.style.left = '-1000px';
+            document.body.appendChild(ta);
+            ta.select();
+            ta.setSelectionRange(0, ta.value.length);
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return !!ok;
+        } catch (err) {
+            console.warn('LoreDiff: copy fallback failed', err);
+            return false;
+        }
+    }
+
     function installCopy(btnSel, outSel) {
         $dialog.find(btnSel).on('click', async () => {
             const text = String($dialog.find(outSel).text() ?? '').trim();
@@ -951,8 +984,12 @@ async function openLoreDiffModal() {
                 toastr?.warning?.('LoreDiff: Nothing to copy.');
                 return;
             }
-            await navigator.clipboard.writeText(text);
-            toastr?.success?.('LoreDiff: Copied to clipboard.');
+            const ok = await copyToClipboardCompat(text);
+            if (ok) {
+                toastr?.success?.('LoreDiff: Copied to clipboard.');
+            } else {
+                toastr?.error?.('LoreDiff: Copy failed (browser limitation).');
+            }
         });
     }
     installCopy('#lorediff_modal_story_copy', '#lorediff_modal_story_out');

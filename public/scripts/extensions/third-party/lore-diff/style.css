@@ -58,6 +58,7 @@
   border: 1px solid var(--SmartThemeBorderColor);
   border-radius: 6px;
   padding: 10px;
+  text-align: left;
   white-space: pre-wrap;
   max-height: 35vh;
   overflow: auto;
