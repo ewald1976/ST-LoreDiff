@@ -92,10 +92,13 @@ function ensureSettings() {
     // Only touches the `default` profile and only if it still contains the old static blocks.
     const defaultScene = extension_settings.loreDiff.scenePromptProfiles.find(p => p?.id === 'default');
     if (defaultScene?.template && typeof defaultScene.template === 'string') {
-        const hasLegacyStaticBlocks =
-            defaultScene.template.includes('\n  constraints:\n') &&
-            defaultScene.template.includes('\n  narrative_mode:\n');
-        if (hasLegacyStaticBlocks) {
+        const shouldUpdateDefaultScene =
+            // old static blocks (echo-prone)
+            (defaultScene.template.includes('\n  constraints:\n') && defaultScene.template.includes('\n  narrative_mode:\n')) ||
+            // older trimmed prompt without these fields at all
+            (!defaultScene.template.includes('\n  constraints:') && !defaultScene.template.includes('\n  narrative_mode:'));
+
+        if (shouldUpdateDefaultScene) {
             defaultScene.template = buildSceneStatePromptTemplate();
         }
     }
@@ -244,8 +247,16 @@ STATE:
   atmosphere: "<brief explicit atmosphere or empty>"
   situation: "<brief explicit current situation>"
 
+  constraints: []
+  narrative_mode: []
+
   notes:
-    - "<optional explicit scene-relevant note>"
+    - "<optional explicit scene-relevant note>"  # use [] if none
+
+FORMAT RULES:
+- Always include `constraints` and `narrative_mode` fields.
+- If none are explicitly stated in the text, output an empty list: []
+- Do NOT copy prompt text. Only output items grounded in the provided material.
 
 ---
 
