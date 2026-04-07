@@ -19,16 +19,7 @@ Canonical sources live under:
 
 - `public/scripts/extensions/third-party/lore-diff`
 
-For local testing with your SillyTavern checkout at:
 
-- `/Users/elmar.leirich/Documents/Dev/SillyTavern`
-
-Create a symlink (or copy) into SillyTavern:
-
-```bash
-ln -s /Users/elmar.leirich/Documents/Dev/ST-LoreDiff/public/scripts/extensions/third-party/lore-diff \
-  /Users/elmar.leirich/Documents/Dev/SillyTavern/public/scripts/extensions/third-party/lore-diff
-```
 
 Then start SillyTavern and enable the extension.
 
