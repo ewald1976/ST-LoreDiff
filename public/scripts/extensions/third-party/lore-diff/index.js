@@ -254,7 +254,7 @@ STATE:
     - "<optional explicit scene-relevant note>"  # use [] if none
 
 FORMAT RULES:
-- Always include `constraints` and `narrative_mode` fields.
+- Always include "constraints" and "narrative_mode" fields.
 - If none are explicitly stated in the text, output an empty list: []
 - Do NOT copy prompt text. Only output items grounded in the provided material.
 
