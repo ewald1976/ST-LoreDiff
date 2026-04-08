@@ -872,6 +872,71 @@ function getSelectedSceneProfile() {
     return getSceneProfiles().find(p => p?.id === id) ?? getSceneProfiles()[0] ?? null;
 }
 
+function renderModalPromptDropdown($sel, profiles, selectedId) {
+    $sel.empty();
+    for (const p of profiles) {
+        $sel.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
+    }
+    $sel.val(selectedId);
+}
+
+function ensureAtLeastOnePrompt(list, kindLabel) {
+    if (list.length > 0) return true;
+    toastr?.error?.(`LoreDiff: No ${kindLabel} prompt profiles available.`);
+    return false;
+}
+
+function createNewPromptProfile(kind) {
+    const id = makeId();
+    const entry = {
+        id,
+        name: 'New Prompt',
+        template: kind === 'story' ? buildStoryStatePromptTemplate() : buildSceneStatePromptTemplate(),
+    };
+    if (kind === 'story') {
+        extension_settings.loreDiff.storyPromptProfiles.push(entry);
+        extension_settings.loreDiff.storyPromptProfileId = id;
+    } else {
+        extension_settings.loreDiff.scenePromptProfiles.push(entry);
+        extension_settings.loreDiff.scenePromptProfileId = id;
+    }
+    saveSettingsDebounced();
+}
+
+function duplicatePromptProfile(kind) {
+    const src = kind === 'story' ? getSelectedStoryProfile() : getSelectedSceneProfile();
+    if (!src) return;
+    const id = makeId();
+    const entry = {
+        id,
+        name: `${src.name ?? 'Prompt'} (Copy)`,
+        template: src.template ?? '',
+    };
+    if (kind === 'story') {
+        extension_settings.loreDiff.storyPromptProfiles.push(entry);
+        extension_settings.loreDiff.storyPromptProfileId = id;
+    } else {
+        extension_settings.loreDiff.scenePromptProfiles.push(entry);
+        extension_settings.loreDiff.scenePromptProfileId = id;
+    }
+    saveSettingsDebounced();
+}
+
+function deletePromptProfile(kind) {
+    const list = kind === 'story' ? getStoryProfiles() : getSceneProfiles();
+    if (list.length <= 1) {
+        toastr?.warning?.('LoreDiff: At least one prompt profile must exist.');
+        return;
+    }
+    const selectedId = kind === 'story' ? extension_settings.loreDiff.storyPromptProfileId : extension_settings.loreDiff.scenePromptProfileId;
+    const idx = list.findIndex(p => p?.id === selectedId);
+    if (idx >= 0) list.splice(idx, 1);
+    const nextId = list[0]?.id ?? 'default';
+    if (kind === 'story') extension_settings.loreDiff.storyPromptProfileId = nextId;
+    else extension_settings.loreDiff.scenePromptProfileId = nextId;
+    saveSettingsDebounced();
+}
+
 async function runTextExtraction({ kind, summary, stateLore, chatSnippet }) {
     ensureSettings();
     const baselineBook = extension_settings?.loreDiff?.baselineBook ?? 'STATE';
@@ -928,24 +993,50 @@ async function openLoreDiffModal() {
 
     const closeFn = () => $('.popup').remove();
     $dialog.find('#lorediff_modal_close').on('click', closeFn);
+    $dialog.find('#lorediff_modal_ok').on('click', closeFn);
 
     // Populate prompt profile dropdowns
     const $storySel = $dialog.find('#lorediff_modal_story_profile');
-    $storySel.empty();
-    for (const p of getStoryProfiles()) $storySel.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
-    $storySel.val(extension_settings.loreDiff.storyPromptProfileId);
+    renderModalPromptDropdown($storySel, getStoryProfiles(), extension_settings.loreDiff.storyPromptProfileId);
     $storySel.on('change', function () {
         extension_settings.loreDiff.storyPromptProfileId = String($(this).val());
         saveSettingsDebounced();
     });
 
     const $sceneSel = $dialog.find('#lorediff_modal_scene_profile');
-    $sceneSel.empty();
-    for (const p of getSceneProfiles()) $sceneSel.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
-    $sceneSel.val(extension_settings.loreDiff.scenePromptProfileId);
+    renderModalPromptDropdown($sceneSel, getSceneProfiles(), extension_settings.loreDiff.scenePromptProfileId);
     $sceneSel.on('change', function () {
         extension_settings.loreDiff.scenePromptProfileId = String($(this).val());
         saveSettingsDebounced();
+    });
+
+    // Prompt profile management buttons
+    $dialog.find('#lorediff_modal_story_new').on('click', () => {
+        createNewPromptProfile('story');
+        renderModalPromptDropdown($storySel, getStoryProfiles(), extension_settings.loreDiff.storyPromptProfileId);
+    });
+    $dialog.find('#lorediff_modal_story_dup').on('click', () => {
+        if (!ensureAtLeastOnePrompt(getStoryProfiles(), 'story')) return;
+        duplicatePromptProfile('story');
+        renderModalPromptDropdown($storySel, getStoryProfiles(), extension_settings.loreDiff.storyPromptProfileId);
+    });
+    $dialog.find('#lorediff_modal_story_del').on('click', () => {
+        deletePromptProfile('story');
+        renderModalPromptDropdown($storySel, getStoryProfiles(), extension_settings.loreDiff.storyPromptProfileId);
+    });
+
+    $dialog.find('#lorediff_modal_scene_new').on('click', () => {
+        createNewPromptProfile('scene');
+        renderModalPromptDropdown($sceneSel, getSceneProfiles(), extension_settings.loreDiff.scenePromptProfileId);
+    });
+    $dialog.find('#lorediff_modal_scene_dup').on('click', () => {
+        if (!ensureAtLeastOnePrompt(getSceneProfiles(), 'scene')) return;
+        duplicatePromptProfile('scene');
+        renderModalPromptDropdown($sceneSel, getSceneProfiles(), extension_settings.loreDiff.scenePromptProfileId);
+    });
+    $dialog.find('#lorediff_modal_scene_del').on('click', () => {
+        deletePromptProfile('scene');
+        renderModalPromptDropdown($sceneSel, getSceneProfiles(), extension_settings.loreDiff.scenePromptProfileId);
     });
 
     function refreshInputs() {
@@ -997,6 +1088,105 @@ async function openLoreDiffModal() {
     $dialog.find('#lorediff_modal_story_edit').on('click', () => editPrompt('story'));
     $dialog.find('#lorediff_modal_scene_edit').on('click', () => editPrompt('scene'));
 
+    async function openSettingsPopup() {
+        ensureSettings();
+        const external = isExternalMode();
+
+        const wrapper = $('<div></div>');
+        wrapper.append('<div style="opacity:0.85;margin-bottom:10px;">LoreDiff settings (stored in extension settings)</div>');
+
+        const form = $(`
+          <div class="flex-container flexGap10" style="flex-direction:column;">
+            <label>Generation mode</label>
+            <select id="lorediff_popup_request_mode" class="text_pole">
+              <option value="st">SillyTavern (Connection Manager)</option>
+              <option value="external">External API (OpenAI-compatible)</option>
+            </select>
+
+            <div id="lorediff_popup_external">
+              <label>API Base URL</label>
+              <input id="lorediff_popup_base_url" class="text_pole" type="text" placeholder="http://127.0.0.1:1234/v1" />
+              <label>API Key</label>
+              <input id="lorediff_popup_api_key" class="text_pole" type="password" placeholder="sk-..." />
+              <label>Model</label>
+              <input id="lorediff_popup_model" class="text_pole" type="text" placeholder="qwen3:4b" />
+              <label>Temperature</label>
+              <input id="lorediff_popup_temp" class="text_pole" type="number" min="0" max="2" step="0.05" />
+              <div style="margin-top:8px;">
+                <button class="menu_button" id="lorediff_popup_test">Test Connection</button>
+              </div>
+              <hr />
+            </div>
+
+            <label>Recent messages</label>
+            <input id="lorediff_popup_messages" class="text_pole" type="number" min="5" max="200" step="1" />
+            <label>Baseline lorebook</label>
+            <select id="lorediff_popup_book" class="text_pole"></select>
+            <label>Analysis budget (chars)</label>
+            <input id="lorediff_popup_chars" class="text_pole" type="number" min="1000" max="100000" step="500" />
+            <label>Max tokens</label>
+            <input id="lorediff_popup_tokens" class="text_pole" type="number" min="64" max="4096" step="16" />
+          </div>
+        `);
+
+        wrapper.append(form);
+
+        form.find('#lorediff_popup_request_mode').val(extension_settings.loreDiff.requestMode);
+        form.find('#lorediff_popup_base_url').val(extension_settings.loreDiff.externalApiBaseUrl);
+        form.find('#lorediff_popup_api_key').val(extension_settings.loreDiff.externalApiKey);
+        form.find('#lorediff_popup_model').val(extension_settings.loreDiff.externalModel);
+        form.find('#lorediff_popup_temp').val(extension_settings.loreDiff.externalTemperature);
+        form.find('#lorediff_popup_messages').val(extension_settings.loreDiff.maxMessages);
+        form.find('#lorediff_popup_chars').val(extension_settings.loreDiff.maxChars);
+        form.find('#lorediff_popup_tokens').val(extension_settings.loreDiff.maxTokens);
+
+        // lorebook options
+        const books = getAvailableLorebooks();
+        const $book = form.find('#lorediff_popup_book');
+        $book.empty();
+        for (const b of books) $book.append($('<option></option>').attr('value', b).text(b));
+        $book.val(extension_settings.loreDiff.baselineBook);
+
+        const setExternalVis = () => {
+            const mode = String(form.find('#lorediff_popup_request_mode').val());
+            form.find('#lorediff_popup_external').toggleClass('hidden', mode !== 'external');
+        };
+        setExternalVis();
+        form.find('#lorediff_popup_request_mode').on('change', setExternalVis);
+
+        form.find('#lorediff_popup_test').on('click', async (e) => {
+            e.preventDefault();
+            // Copy current UI values into settings temporarily for the test.
+            extension_settings.loreDiff.externalApiBaseUrl = String(form.find('#lorediff_popup_base_url').val());
+            extension_settings.loreDiff.externalApiKey = String(form.find('#lorediff_popup_api_key').val());
+            await testExternalConnection();
+        });
+
+        const ok = await callGenericPopup(wrapper, POPUP_TYPE.CONFIRM, 'LoreDiff Settings', {
+            okButton: 'Save',
+            cancelButton: 'Cancel',
+            wide: true,
+            large: true,
+            allowVerticalScrolling: true,
+        });
+
+        if (!ok) return;
+
+        extension_settings.loreDiff.requestMode = String(form.find('#lorediff_popup_request_mode').val());
+        extension_settings.loreDiff.externalApiBaseUrl = String(form.find('#lorediff_popup_base_url').val());
+        extension_settings.loreDiff.externalApiKey = String(form.find('#lorediff_popup_api_key').val());
+        extension_settings.loreDiff.externalModel = String(form.find('#lorediff_popup_model').val());
+        extension_settings.loreDiff.externalTemperature = Number(form.find('#lorediff_popup_temp').val());
+        extension_settings.loreDiff.maxMessages = Number(form.find('#lorediff_popup_messages').val());
+        extension_settings.loreDiff.baselineBook = String(form.find('#lorediff_popup_book').val());
+        extension_settings.loreDiff.maxChars = Number(form.find('#lorediff_popup_chars').val());
+        extension_settings.loreDiff.maxTokens = Number(form.find('#lorediff_popup_tokens').val());
+        saveSettingsDebounced();
+        toastr?.success?.('LoreDiff: Settings saved.');
+    }
+
+    $dialog.find('#lorediff_modal_settings').on('click', openSettingsPopup);
+
     $dialog.find('#lorediff_modal_story_run').on('click', async () => {
         $dialog.find('#lorediff_modal_story_run').prop('disabled', true);
         $dialog.find('#lorediff_modal_story_out').text('Generating...');
@@ -1046,112 +1236,7 @@ async function renderSettings() {
     });
     $('#extensions_settings').append(html);
 
-    const profiles = getSupportedProfilesSafe();
-    const $profileSelect = $('#lorediff_profile_id');
-    $profileSelect.empty();
-    $profileSelect.append($('<option></option>').attr('value', '').text('— Select profile —'));
-    for (const p of profiles) {
-        $profileSelect.append($('<option></option>').attr('value', p.id).text(p.name ?? p.id));
-    }
-
-    $('#lorediff_profile_mode')
-        .val(extension_settings.loreDiff.profileMode)
-        .on('change', function () {
-            extension_settings.loreDiff.profileMode = String($(this).val());
-            setConnectionControlsVisibility();
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_profile_id')
-        .val(extension_settings.loreDiff.profileId ?? '')
-        .on('change', function () {
-            extension_settings.loreDiff.profileId = String($(this).val()) || null;
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_request_mode')
-        .val(extension_settings.loreDiff.requestMode)
-        .on('change', function () {
-            extension_settings.loreDiff.requestMode = String($(this).val());
-            setConnectionControlsVisibility();
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_external_base_url')
-        .val(extension_settings.loreDiff.externalApiBaseUrl)
-        .on('input', function () {
-            extension_settings.loreDiff.externalApiBaseUrl = String($(this).val());
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_external_api_key')
-        .val(extension_settings.loreDiff.externalApiKey)
-        .on('input', function () {
-            extension_settings.loreDiff.externalApiKey = String($(this).val());
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_external_model')
-        .val(extension_settings.loreDiff.externalModel)
-        .on('input', function () {
-            extension_settings.loreDiff.externalModel = String($(this).val());
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_external_temperature')
-        .val(extension_settings.loreDiff.externalTemperature)
-        .on('input', function () {
-            extension_settings.loreDiff.externalTemperature = Number($(this).val());
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_external_test').on('click', async () => {
-        $('#lorediff_external_test').prop('disabled', true);
-        try {
-            await testExternalConnection();
-        } finally {
-            $('#lorediff_external_test').prop('disabled', false);
-        }
-    });
-
-    $('#lorediff_max_messages')
-        .val(extension_settings.loreDiff.maxMessages)
-        .on('input', function () {
-            extension_settings.loreDiff.maxMessages = Number($(this).val()) || DEFAULT_SETTINGS.maxMessages;
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_baseline_book')
-        .val(extension_settings.loreDiff.baselineBook)
-        .on('change', function () {
-            extension_settings.loreDiff.baselineBook = String($(this).val());
-            saveSettingsDebounced();
-        });
-    renderBaselineBookOptions();
-
-    $('#lorediff_max_chars')
-        .val(extension_settings.loreDiff.maxChars)
-        .on('input', function () {
-            extension_settings.loreDiff.maxChars = Number($(this).val()) || DEFAULT_SETTINGS.maxChars;
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_max_tokens')
-        .val(extension_settings.loreDiff.maxTokens)
-        .on('input', function () {
-            extension_settings.loreDiff.maxTokens = Number($(this).val()) || DEFAULT_SETTINGS.maxTokens;
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_json_mode')
-        .val(extension_settings.loreDiff.jsonMode)
-        .on('change', function () {
-            extension_settings.loreDiff.jsonMode = String($(this).val());
-            saveSettingsDebounced();
-        });
-
-    $('#lorediff_run_btn').on('click', runLoreDiff);
-    setConnectionControlsVisibility();
+    // Sidebar intentionally minimal; workflow + settings live in the modal.
 }
 
 function registerSlashCommand() {
