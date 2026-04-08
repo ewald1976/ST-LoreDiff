@@ -1072,16 +1072,25 @@ async function openLoreDiffModal() {
         const profile = kind === 'story' ? getSelectedStoryProfile() : getSelectedSceneProfile();
         if (!profile) return;
         const title = kind === 'story' ? 'Edit STORY_STATE prompt' : 'Edit STATE prompt';
+        const nameInput = $('<input class="text_pole" type="text" />');
+        nameInput.val(profile.name ?? '');
         const textarea = $('<textarea class="text_pole textarea_compact" rows="16"></textarea>');
         textarea.val(profile.template ?? '');
         const wrapper = $('<div></div>');
-        wrapper.append(`<div style="opacity:0.85;margin-bottom:8px;">Profile: ${profile.name ?? profile.id}</div>`);
+        wrapper.append('<div style="opacity:0.85;margin-bottom:6px;">Profile name</div>');
+        wrapper.append(nameInput);
+        wrapper.append('<div style="opacity:0.85;margin:10px 0 6px;">Prompt template</div>');
         wrapper.append(textarea);
         const result = await callGenericPopup(wrapper, POPUP_TYPE.CONFIRM, title, { okButton: 'Save', cancelButton: 'Cancel', wide: true, large: true, allowVerticalScrolling: true });
         if (result) {
+            profile.name = String(nameInput.val() ?? '').trim() || profile.name || profile.id;
             profile.template = String(textarea.val() ?? '');
             saveSettingsDebounced();
             toastr?.success?.('LoreDiff: Prompt saved.');
+
+            // Refresh dropdown labels in the open modal.
+            renderModalPromptDropdown($storySel, getStoryProfiles(), extension_settings.loreDiff.storyPromptProfileId);
+            renderModalPromptDropdown($sceneSel, getSceneProfiles(), extension_settings.loreDiff.scenePromptProfileId);
         }
     }
 
