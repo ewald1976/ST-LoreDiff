@@ -616,6 +616,7 @@ async function testExternalConnection() {
 
     const url = `${baseUrl}/models`;
     try {
+        console.debug('LoreDiff external test:', url);
         const res = await fetch(url, {
             method: 'GET',
             headers: {
@@ -646,6 +647,7 @@ async function sendExternalChatCompletion(messages, maxTokens) {
     if (!model) throw new Error('LoreDiff: External model is missing.');
 
     const url = `${baseUrl}/chat/completions`;
+    console.debug('LoreDiff external request:', url, { model, maxTokens, temperature });
     const res = await fetch(url, {
         method: 'POST',
         headers: {
